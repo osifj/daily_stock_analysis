@@ -84,6 +84,8 @@ powershell -ExecutionPolicy Bypass -File scripts\build-all.ps1
 
 桌面端自动更新链路依赖 Windows NSIS 安装产物、`latest.yml` 与 `*.blockmap` 元数据。当前桌面 CI 不覆盖 `desktop-release` 打包产物可发布链路，提交前建议补充如下本地验证：
 
+说明：该清单专注于 Windows NSIS 安装版与 `electron-updater` 发布元数据。当前 Linux 环境无法直接产出 Windows 安装包和 updater 元数据（`latest.yml` / `*.blockmap`），此类链路需在 Windows 发布执行器或 Windows 本机环境复核。
+
 1. 先构建 Web 静态产物（桌面端主窗口与设置页入口依赖）
 
 ```bash
@@ -101,6 +103,8 @@ npm ci
 npm test
 npm run build
 ```
+
+> 预期当前执行环境不支持生成 Windows `Setup*.exe` 时，请在交付说明中明确注明平台限制，并要求指定的 Windows 发布链路复核人补齐该项验证。
 
 3. 检查更新元数据是否产出
 
@@ -146,6 +150,13 @@ sed -n '1,80p' dist/latest.yml
 echo "packaging artifacts:"
 ls -1 dist/*.yml dist/*.blockmap dist/*Setup*.exe dist/*installer*.exe 2>/dev/null | sort
 ```
+
+Windows 发布链路复核清单（在 PR 后由发布团队/维护者执行）：
+
+- release/tag 与 `daily-stock-analysis-windows-installer-<tag>.exe` 的版本号一致；
+- `latest.yml`、`*Setup*.exe`、`*.blockmap` 同 tag 同步出现且可下载；
+- `latest.yml` 中 `version` 与 Release tag 语义一致（去掉 `v` 前缀后比对）；
+- 如缺少上述文件或 `release-tag` 不匹配，需标注阻断并补齐 `desktop-release` 打包流程。
 
 5. Windows/NSIS 产物与发布附件一致性请在 Windows 环境手动验证（可人工触发发布流程），并在升级后核对运行时文件留存：
 
