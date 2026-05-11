@@ -467,6 +467,15 @@ Recommended host mappings:
 - `./reports:/app/reports` for generated reports
 - `./strategies:/app/strategies:ro` for custom strategy YAML files
 
+Official Docker images run as the non-root `dsa` user inside the container (UID/GID `1000:1000`). On first deployment or after changing host directories, make sure `data`, `logs`, and `reports` are writable by that user. If `logs` is not writable, file logging falls back to console output; database or report writes may still fail until permissions are fixed:
+
+```bash
+mkdir -p data logs reports
+sudo chown -R 1000:1000 data logs reports
+```
+
+If you override the runtime user with `--user` or Compose `user:`, replace the UID/GID above with the actual container user, or grant write access with an equivalent ACL / permission policy.
+
 Optional static asset override:
 
 - `./static:/app/static:ro`

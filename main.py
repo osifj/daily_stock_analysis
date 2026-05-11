@@ -141,6 +141,22 @@ def _setup_bootstrap_logging(debug: bool = False) -> None:
         root.addHandler(handler)
 
 
+def _setup_runtime_logging(log_dir: str, debug: bool = False) -> bool:
+    """Switch to configured logging, falling back to console on file I/O errors."""
+    try:
+        setup_logging(log_prefix="stock_analysis", debug=debug, log_dir=log_dir)
+        return True
+    except OSError as exc:
+        logger.warning(
+            "文件日志初始化失败，已降级为控制台日志输出；日志目录 %r 当前不可写或不可创建: %s。"
+            "Docker bind mount 请确保宿主机 data/logs/reports 目录可由容器内 UID 1000 写入，"
+            "例如执行 `sudo chown -R 1000:1000 data logs reports` 后重启容器。",
+            log_dir,
+            exc,
+        )
+        return False
+
+
 def _get_stock_analysis_pipeline():
     """Lazily import StockAnalysisPipeline for external consumers.
 
@@ -767,7 +783,7 @@ def main() -> int:
 
     # 配置日志（输出到控制台和文件）
     try:
-        setup_logging(log_prefix="stock_analysis", debug=args.debug, log_dir=config.log_dir)
+        _setup_runtime_logging(config.log_dir, debug=args.debug)
     except Exception as exc:
         logger.exception("切换到配置日志目录失败: %s", exc)
         return 1

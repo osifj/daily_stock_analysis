@@ -502,6 +502,15 @@ services:
 - `./reports:/app/reports`：生成的分析报告
 - `./strategies:/app/strategies:ro`：自定义策略 YAML（只读挂载）
 
+官方 Docker 镜像默认使用容器内非 root 用户 `dsa`（UID/GID `1000:1000`）运行。首次部署或更换宿主机目录后，请确保 `data`、`logs`、`reports` 对该用户可写，否则文件日志会自动降级到控制台输出，数据库或报告写入仍可能失败：
+
+```bash
+mkdir -p data logs reports
+sudo chown -R 1000:1000 data logs reports
+```
+
+如果你通过 `--user` 或 Compose `user:` 指定了其他运行用户，请将上面的 UID/GID 替换为实际容器用户，或使用等价的 ACL / 权限策略授予写入权限。
+
 如果你需要覆盖内置静态资源，还可以额外挂载：
 
 - `./static:/app/static:ro`
