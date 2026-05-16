@@ -1020,6 +1020,43 @@ class ConfigEnvCompatibilityTestCase(unittest.TestCase):
         self.assertEqual(config.stock_list, ["300750", "TSLA"])
         self.assertEqual(config.stock_list_fetch_api, "https://example.com/stocks.json")
 
+    @patch("src.config.setup_env")
+    @patch("src.config._open_stock_list_fetch_request")
+    @patch.object(Config, "_parse_litellm_yaml", return_value=[])
+    def test_refresh_stock_list_incomplete_read_falls_back_to_local_stock_list(
+        self,
+        _mock_parse_yaml,
+        mock_urlopen,
+        _mock_setup_env,
+    ) -> None:
+        mock_response = _FakeUrlopenResponse("600519")
+
+        def fake_read(_size: int = -1) -> bytes:
+            raise IncompleteRead(partial=mock_response._payload, expected=1024)
+
+        mock_response.read = fake_read
+        mock_urlopen.return_value = mock_response
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            env_path = Path(temp_dir) / ".env"
+            env_path.write_text(
+                "\n".join(
+                    [
+                        "STOCK_LIST=000001,300750",
+                        "STOCK_LIST_FETCH_API=https://example.com/stocks.json",
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            config = Config(stock_list=["600519"])
+
+            with patch.dict(os.environ, {"ENV_FILE": str(env_path)}, clear=True):
+                config.refresh_stock_list()
+
+        self.assertEqual(config.stock_list, ["000001", "300750"])
+        self.assertEqual(config.stock_list_fetch_api, "https://example.com/stocks.json")
+
     @patch("src.config._open_stock_list_fetch_request")
     def test_refresh_stock_list_preserves_runtime_fetch_api_override(
         self,
