@@ -134,7 +134,7 @@ class TestLongbridgeAuthSelection(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmpdir:
             token_cache = Path(tmpdir) / "client-1"
-            token_cache.write_text("{}", encoding="utf-8")
+            token_cache.write_text('{"refresh_token":"valid-token"}', encoding="utf-8")
             with patch.dict("sys.modules", {"longbridge": mock_lb_module, "longbridge.openapi": mock_lb_openapi}), patch.dict(
                 os.environ,
                 {
@@ -181,6 +181,69 @@ class TestLongbridgeAuthSelection(unittest.TestCase):
 
         self.assertIsNone(ctx)
         mock_oauth_builder.assert_not_called()
+        mock_config.from_apikey_env.assert_not_called()
+        mock_config.from_apikey.assert_not_called()
+
+    @patch("src.config.get_config")
+    def test_oauth_invalid_cache_content_skips_oauth_reauth_and_fails_closed(self, mock_get_config):
+        mock_get_config.return_value = self._config(oauth_client_id="client-1")
+        modules = self._install_mock_longbridge()
+        mock_lb_module, mock_lb_openapi, mock_config, _, mock_oauth_builder = modules
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            invalid_cache = Path(tmpdir) / "client-1"
+            invalid_cache.write_text("invalid-json", encoding="utf-8")
+            with patch.dict("sys.modules", {"longbridge": mock_lb_module, "longbridge.openapi": mock_lb_openapi}), patch.dict(
+                os.environ,
+                {
+                    "LONGBRIDGE_OAUTH_CLIENT_ID": "client-1",
+                    "LONGBRIDGE_APP_KEY": "",
+                    "LONGBRIDGE_APP_SECRET": "",
+                    "LONGBRIDGE_ACCESS_TOKEN": "",
+                },
+            ), patch("data_provider.longbridge_fetcher._longbridge_config_kwargs", return_value={}), patch(
+                "data_provider.longbridge_fetcher._oauth_token_cache_path",
+                return_value=invalid_cache,
+            ):
+                fetcher = LongbridgeFetcher()
+                ctx = fetcher._get_ctx()
+
+        self.assertIsNone(ctx)
+        mock_oauth_builder.assert_not_called()
+        mock_config.from_apikey_env.assert_not_called()
+        mock_config.from_apikey.assert_not_called()
+
+    @patch("src.config.get_config")
+    def test_oauth_callback_reauth_request_fails_closed_in_headless(self, mock_get_config):
+        mock_get_config.return_value = self._config(oauth_client_id="client-1")
+        modules = self._install_mock_longbridge()
+        mock_lb_module, mock_lb_openapi, mock_config, _, mock_oauth_builder = modules
+
+        def _require_oauth_reauth_request(show_url):
+            show_url("https://longbridge.oauth/login")
+            raise RuntimeError("re-auth requested")
+        mock_oauth_builder.return_value.build.side_effect = _require_oauth_reauth_request
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            token_cache = Path(tmpdir) / "client-1"
+            token_cache.write_text('{"refresh_token":"expired-token"}', encoding="utf-8")
+            with patch.dict("sys.modules", {"longbridge": mock_lb_module, "longbridge.openapi": mock_lb_openapi}), patch.dict(
+                os.environ,
+                {
+                    "LONGBRIDGE_OAUTH_CLIENT_ID": "client-1",
+                    "LONGBRIDGE_APP_KEY": "",
+                    "LONGBRIDGE_APP_SECRET": "",
+                    "LONGBRIDGE_ACCESS_TOKEN": "",
+                },
+            ), patch("data_provider.longbridge_fetcher._longbridge_config_kwargs", return_value={}), patch(
+                "data_provider.longbridge_fetcher._oauth_token_cache_path",
+                return_value=token_cache,
+            ):
+                fetcher = LongbridgeFetcher()
+                ctx = fetcher._get_ctx()
+
+        self.assertIsNone(ctx)
+        mock_oauth_builder.assert_called_once_with("client-1")
         mock_config.from_apikey_env.assert_not_called()
         mock_config.from_apikey.assert_not_called()
 

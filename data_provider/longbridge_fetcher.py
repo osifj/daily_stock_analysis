@@ -22,6 +22,7 @@ Legacy API Key 三件套（`LONGBRIDGE_APP_KEY` / `LONGBRIDGE_APP_SECRET` / `LON
 
 import base64
 import binascii
+import json
 import logging
 import os
 import time
@@ -262,6 +263,51 @@ def _restore_oauth_token_cache_from_env(client_id: str) -> bool:
         return False
 
 
+def _is_valid_oauth_cache_file(token_cache: Path) -> bool:
+    """Basic health check for SDK token cache content.
+
+    We avoid attempting interactive OAuth flows when the cache is missing or
+    malformed, so headless jobs fail explicitly instead of hanging for manual
+    re-authorization.
+    """
+    if not token_cache.exists():
+        return False
+
+    try:
+        raw = token_cache.read_bytes()
+    except OSError as exc:
+        logger.warning("[Longbridge] 读取 OAuth token 缓存失败: %s", exc)
+        return False
+
+    if not raw.strip():
+        logger.warning("[Longbridge] OAuth token 缓存为空文件: %s", token_cache)
+        return False
+
+    try:
+        payload = raw.decode("utf-8").strip()
+    except UnicodeDecodeError as exc:
+        logger.warning("[Longbridge] OAuth token 缓存不是 UTF-8 文本: %s", exc)
+        return False
+
+    try:
+        data = json.loads(payload)
+    except json.JSONDecodeError as exc:
+        logger.warning("[Longbridge] OAuth token 缓存不是合法 JSON: %s", exc)
+        return False
+
+    if not isinstance(data, dict) or not data:
+        logger.warning("[Longbridge] OAuth token 缓存内容为空或格式不符合预期: %s", token_cache)
+        return False
+
+    return True
+
+
+def _oauth_reauth_not_supported(url: str) -> None:
+    raise RuntimeError(
+        f"OAuth token 缓存已失效或缺失，当前为无头运行不支持打开授权页面，请重建 LONGBRIDGE_OAUTH_TOKEN_CACHE_B64: {url}"
+    )
+
+
 def _longbridge_credentials(config: Any = None) -> Dict[str, Optional[str]]:
     """Collect Longbridge auth inputs from Config/env without exposing secrets."""
     app_key = _clean_optional(getattr(config, "longbridge_app_key", None))
@@ -475,21 +521,24 @@ class LongbridgeFetcher(BaseFetcher):
                     if not token_cache.exists():
                         _restore_oauth_token_cache_from_env(oauth_client_id)
 
-                    if token_cache.exists():
+                    if _is_valid_oauth_cache_file(token_cache):
                         try:
                             from longbridge.openapi import OAuthBuilder
 
                             oauth = OAuthBuilder(oauth_client_id).build(
-                                lambda url: logger.warning(
-                                    "[Longbridge] OAuth token 需要重新授权，请在交互环境打开: %s",
-                                    url,
-                                )
+                                _oauth_reauth_not_supported,
                             )
                             lb_config = Config.from_oauth(oauth)
                             logger.info("[Longbridge] Config.from_oauth() 创建成功")
                         except Exception as exc:
                             oauth_error = exc
                             logger.warning("[Longbridge] OAuth 初始化失败: %s", exc)
+                    elif token_cache.exists():
+                        logger.warning(
+                            "[Longbridge] OAuth token 缓存内容异常，已拒绝交互式续期: %s。"
+                            "请先执行 scripts/generate_longbridge_oauth_token.py 重建缓存。",
+                            token_cache,
+                        )
                     else:
                         logger.warning(
                             "[Longbridge] OAuth client 已配置，但 token 缓存不存在: %s。"
