@@ -32,6 +32,8 @@ def test_docker_entrypoint_repairs_ownership_and_user_permissions() -> None:
     assert "can_write_dir_as_app_user" in entrypoint
     assert "DATABASE_FILE" in entrypoint
     assert "/home/dsa/.longbridge" in entrypoint
+    assert 'HOME="/home/dsa"' in entrypoint
+    assert re.search(r"export\s+HOME\s+exec\s+gosu", entrypoint, re.DOTALL)
     assert re.search(r"\bchown\s+-R\b", entrypoint)
     assert re.search(r"\bchmod\s+-R\s+u\+rwX\b", entrypoint)
     assert re.search(r"gosu\s+\"\$APP_USER:\$APP_GROUP\"\s+test\s+-w", entrypoint)

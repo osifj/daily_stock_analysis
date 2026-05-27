@@ -84,6 +84,8 @@ if [ "$(id -u)" = "0" ]; then
         fi
     done
 
+    HOME="/home/dsa"
+    export HOME
     exec gosu "$APP_USER:$APP_GROUP" "$@"
 fi
 
