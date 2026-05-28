@@ -4,6 +4,9 @@
 from __future__ import annotations
 
 import re
+import os
+import subprocess
+import sys
 from pathlib import Path
 
 import yaml
@@ -64,6 +67,42 @@ def _load_daily_analysis_run_script() -> str:
     analyze_step = next((step for step in steps if step.get("name") == "执行股票分析"), None)
     assert analyze_step is not None
     return analyze_step["run"]
+
+
+def _extract_stock_list_preflight_python() -> str:
+    run_script = _load_daily_analysis_run_script()
+    marker = "MODE=\"$MODE\" python - <<'PY'\n"
+    start = run_script.index(marker) + len(marker)
+    lines = []
+    for line in run_script[start:].splitlines():
+        if line == "PY":
+            break
+        lines.append(line)
+    return "\n".join(line[10:] if line.startswith("          ") else line for line in lines)
+
+
+def _run_stock_list_preflight(*, stock_list: str, mode: str) -> subprocess.CompletedProcess[str]:
+    env = os.environ.copy()
+    env.update(
+        {
+            "MODE": mode,
+            "STOCK_LIST": stock_list,
+            "LLM_CHANNELS": "deepseek",
+            "LLM_DEEPSEEK_PROTOCOL": "deepseek",
+            "LLM_DEEPSEEK_API_KEY": "sk-test-value",
+            "LLM_DEEPSEEK_MODELS": "deepseek-v4-pro",
+            "LITELLM_MODEL": "deepseek/deepseek-v4-pro",
+            "WECHAT_WEBHOOK_URL": "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=test",
+        }
+    )
+    return subprocess.run(
+        [sys.executable, "-c", _extract_stock_list_preflight_python()],
+        cwd=ROOT_DIR,
+        env=env,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
 
 
 def test_daily_analysis_maps_all_provider_template_channels() -> None:
@@ -127,8 +166,28 @@ def test_daily_analysis_requires_explicit_stock_list() -> None:
     run_script = _load_daily_analysis_run_script()
 
     assert env["STOCK_LIST"] == "${{ vars.STOCK_LIST || secrets.STOCK_LIST }}"
-    assert "缺少 STOCK_LIST" in run_script
+    assert "缺少有效 STOCK_LIST" in run_script
     assert "validate_structured" in run_script
+
+
+def test_stock_list_preflight_rejects_blank_or_comma_only_values() -> None:
+    for value in ("", " , "):
+        result = _run_stock_list_preflight(stock_list=value, mode="stocks-only")
+        assert result.returncode == 1
+        assert "缺少有效 STOCK_LIST" in result.stdout
+
+
+def test_stock_list_preflight_allows_valid_stock_values() -> None:
+    result = _run_stock_list_preflight(stock_list="688120,688981", mode="stocks-only")
+
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_stock_list_preflight_allows_market_only_without_stock_list() -> None:
+    result = _run_stock_list_preflight(stock_list=" , ", mode="market-only")
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "market-only 模式" in result.stdout
 
 
 def test_daily_analysis_status_reports_multi_key_llm_configs() -> None:

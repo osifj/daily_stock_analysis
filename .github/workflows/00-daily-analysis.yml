@@ -408,15 +408,25 @@ jobs:
           # 判断运行模式
           MODE="${{ github.event.inputs.mode || 'full' }}"
 
-          # 部署预检：避免未配置自选股时静默分析示例股票。
-          if ! has_any_env STOCK_LIST; then
-            echo "::error title=缺少 STOCK_LIST::请在 Settings > Secrets and variables > Actions 中添加 STOCK_LIST，例如 600519,hk00700,AAPL。"
-            exit 1
-          fi
-
-          # 复用应用内配置校验，只把 error 级问题作为 Actions 失败条件。
-          python - <<'PY'
+          # 部署预检：full / stocks-only 必须提供解析后非空的 STOCK_LIST，避免回退示例股票。
+          MODE="$MODE" python - <<'PY'
+          import os
           from src.config import get_config
+
+          mode = os.getenv("MODE", "full") or "full"
+          raw_stock_list = os.getenv("STOCK_LIST", "")
+          parsed_stock_list = [item.strip().upper() for item in raw_stock_list.split(",") if item.strip()]
+
+          if mode != "market-only" and not parsed_stock_list:
+              print(
+                  "::error title=缺少有效 STOCK_LIST::"
+                  "请在 Settings > Secrets and variables > Actions 中添加至少一个股票代码，"
+                  "例如 600519,hk00700,AAPL；空白或仅逗号不会被视为有效自选股。"
+              )
+              raise SystemExit(1)
+
+          if mode == "market-only" and not parsed_stock_list:
+              print("::notice title=market-only 模式::未配置 STOCK_LIST；本次仅运行大盘复盘，跳过自选股校验。")
 
           errors = [issue for issue in get_config().validate_structured() if issue.severity == "error"]
           for issue in errors:
