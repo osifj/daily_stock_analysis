@@ -153,6 +153,30 @@ class TestWechatSender(unittest.TestCase):
         self.assertFalse(result)
         mock_post.assert_not_called()
 
+    @mock.patch("src.notification_sender.wechat_sender.requests.post")
+    def test_send_wechat_file_uploads_and_sends_media_id(self, mock_post):
+        from pathlib import Path
+        import tempfile
+
+        upload_response = _response(200, {"errcode": 0, "media_id": "MEDIA123"})
+        send_response = _response(200, {"errcode": 0})
+        mock_post.side_effect = [upload_response, send_response]
+        cfg = _config(wechat_webhook_url="https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=KEY")
+        sender = WechatSender(cfg)
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            report_path = Path(temp_dir) / "report.docx"
+            report_path.write_bytes(b"docx")
+            result = sender.send_file_to_wechat(report_path)
+
+        self.assertTrue(result)
+        self.assertEqual(mock_post.call_count, 2)
+        self.assertIn("/webhook/upload_media?key=KEY&type=file", mock_post.call_args_list[0].args[0])
+        self.assertEqual(
+            mock_post.call_args_list[1].kwargs["json"],
+            {"msgtype": "file", "file": {"media_id": "MEDIA123"}},
+        )
+
 
 class TestFeishuSender(unittest.TestCase):
     """Unit tests for FeishuSender."""

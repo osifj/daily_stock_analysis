@@ -514,12 +514,15 @@ jobs:
 
           # 执行分析
           if [ "$MODE" = "market-only" ]; then
-            python main.py --market-review $FORCE_RUN_ARG
+            python main.py --market-review --no-notify $FORCE_RUN_ARG
           elif [ "$MODE" = "stocks-only" ]; then
-            python main.py --no-market-review $FORCE_RUN_ARG
+            python main.py --no-market-review --no-notify $FORCE_RUN_ARG
           else
-            python main.py $FORCE_RUN_ARG
+            python main.py --no-notify $FORCE_RUN_ARG
           fi
+
+          # 发送 Word 附件，避免企业微信群被长 Markdown 刷屏。
+          python scripts/send_wechat_report_file.py --reports-dir reports
       
       - name: 上传分析报告
         uses: actions/upload-artifact@v6

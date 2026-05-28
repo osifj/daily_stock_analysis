@@ -9,6 +9,7 @@ Wechat 发送提醒服务
 import logging
 import base64
 import hashlib
+from pathlib import Path
 import requests
 import time
 from typing import Optional
@@ -124,6 +125,88 @@ class WechatSender:
         except Exception as e:
             logger.error("企业微信图片发送异常: %s", e)
             return False
+
+    def send_file_to_wechat(
+        self,
+        file_path: str | Path,
+        *,
+        timeout_seconds: Optional[float] = None,
+    ) -> bool:
+        """Upload and send a file via WeChat Work group robot webhook."""
+        if not self._wechat_url:
+            logger.warning("企业微信 Webhook 未配置，跳过文件推送")
+            return False
+
+        path = Path(file_path)
+        if not path.exists() or not path.is_file():
+            logger.error("企业微信文件不存在，无法发送: %s", path)
+            return False
+
+        media_id = self._upload_wechat_file(path, timeout_seconds=timeout_seconds)
+        if not media_id:
+            return False
+
+        return self._send_wechat_file_message(media_id, timeout_seconds=timeout_seconds)
+
+    def _upload_wechat_file(
+        self,
+        file_path: Path,
+        *,
+        timeout_seconds: Optional[float] = None,
+    ) -> Optional[str]:
+        """Upload a file and return WeChat Work media_id."""
+        upload_url = self._wechat_url.replace("/webhook/send?", "/webhook/upload_media?")
+        separator = "&" if "?" in upload_url else "?"
+        upload_url = f"{upload_url}{separator}type=file"
+
+        try:
+            with file_path.open("rb") as fh:
+                response = requests.post(
+                    upload_url,
+                    files={"media": (file_path.name, fh)},
+                    timeout=timeout_seconds or 30,
+                    verify=self._webhook_verify_ssl,
+                )
+        except Exception as e:
+            logger.error("企业微信文件上传异常: %s", e)
+            return None
+
+        if response.status_code != 200:
+            logger.error("企业微信文件上传请求失败: HTTP %s", response.status_code)
+            return None
+
+        result = response.json()
+        if result.get("errcode") == 0 and result.get("media_id"):
+            logger.info("企业微信文件上传成功: %s", file_path.name)
+            return str(result["media_id"])
+
+        logger.error("企业微信文件上传失败: %s", result)
+        return None
+
+    def _send_wechat_file_message(
+        self,
+        media_id: str,
+        *,
+        timeout_seconds: Optional[float] = None,
+    ) -> bool:
+        payload = {"msgtype": "file", "file": {"media_id": media_id}}
+        response = requests.post(
+            self._wechat_url,
+            json=payload,
+            timeout=timeout_seconds or 10,
+            verify=self._webhook_verify_ssl,
+        )
+
+        if response.status_code == 200:
+            result = response.json()
+            if result.get("errcode") == 0:
+                logger.info("企业微信文件消息发送成功")
+                return True
+            logger.error("企业微信文件消息发送失败: %s", result)
+            return False
+
+        logger.error("企业微信文件消息请求失败: HTTP %s", response.status_code)
+        return False
     
     def _send_wechat_message(self, content: str, *, timeout_seconds: Optional[float] = None) -> bool:
         """发送企业微信消息"""

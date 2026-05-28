@@ -96,3 +96,10 @@ def test_daily_analysis_status_reports_email_channel() -> None:
     assert "邮箱:" in run_script
     assert "EMAIL_SENDER" in run_script
     assert "EMAIL_PASSWORD" in run_script
+
+
+def test_daily_analysis_sends_wechat_report_as_word_file() -> None:
+    run_script = _load_daily_analysis_run_script()
+
+    assert "--no-notify" in run_script
+    assert "scripts/send_wechat_report_file.py" in run_script
